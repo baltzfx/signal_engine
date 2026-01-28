@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  signal-engine:
+    build: .
+    container_name: signal-engine
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: python -m app.main
+    networks:
+      - signal-network
+
+  # Optional: Redis for caching (replace in-memory cache)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: signal-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - signal-network
+
+networks:
+  signal-network:
+    driver: bridge

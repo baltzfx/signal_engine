@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: signal-engine
+    env: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: BINANCE_API_KEY
+        sync: false
+      - key: BINANCE_API_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TRADING_PAIRS
+        value: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
+      - key: MIN_CONFIDENCE_SCORE
+        value: 70
+      - key: SCAN_INTERVAL_SECONDS
+        value: 300
+      - key: LOG_LEVEL
+        value: INFO
