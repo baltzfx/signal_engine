@@ -28,5 +28,5 @@ RUN ls -la /app/app/ && echo "--- Checking submodules ---" && ls -la /app/app/da
 # Set working directory to app folder
 WORKDIR /app/app
 
-# Run the application
-CMD ["python", "main.py"]
+# Run the application with explicit path
+CMD ["python", "-u", "main.py"]

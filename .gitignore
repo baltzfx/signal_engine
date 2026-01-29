@@ -38,8 +38,9 @@ env/
 *~
 
 # Data and Logs
-data/
-logs/
+/data/
+/logs/
+app/logs/
 *.log
 *.db
 *.sqlite
