@@ -6,13 +6,13 @@ import asyncio
 import logging
 from datetime import datetime
 
-from config.settings import settings
-from data.binance_client import BinanceClient
-from signals.generator import SignalGenerator
-from notifier.telegram import TelegramNotifier
-from tracking.open_signals import OpenSignalsTracker
-from utils.logger import setup_logger
-from database.connection import init_db
+from app.config.settings import settings
+from app.data.binance_client import BinanceClient
+from app.signals.generator import SignalGenerator
+from app.notifier.telegram import TelegramNotifier
+from app.tracking.open_signals import OpenSignalsTracker
+from app.utils.logger import setup_logger
+from app.database.connection import init_db
 
 
 logger = setup_logger(__name__)
