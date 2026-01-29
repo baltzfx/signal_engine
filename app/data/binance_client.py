@@ -78,20 +78,8 @@ class BinanceClient:
     
     async def fetch_funding_rate(self, symbol: str) -> Optional[float]:
         """Fetch current funding rate (futures only)"""
-        cache_key = f"funding:{symbol}"
-        cached = self.cache.get(cache_key)
-        
-        if cached is not None:
-            return cached
-        
-        try:
-            funding = self.exchange.fetch_funding_rate(symbol)
-            rate = funding.get('fundingRate', 0)
-            self.cache.set(cache_key, rate, ttl=300)  # 5 min cache
-            return rate
-        except Exception as e:
-            logger.warning(f"Error fetching funding rate for {symbol}: {e}")
-            return None
+        # Disabled for Spot API - funding rates only available on Futures
+        return None
     
     async def fetch_24h_volume(self, symbol: str) -> Optional[float]:
         """Fetch 24h volume in quote currency"""

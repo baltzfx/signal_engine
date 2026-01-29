@@ -13,10 +13,10 @@ services:
       - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TRADING_PAIRS
-        value: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
+        value: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,MATICUSDT,DOTUSDT,AVAXUSDT,LINKUSDT,LTCUSDT,ATOMUSDT,UNIUSDT,NEARUSDT
       - key: MIN_CONFIDENCE_SCORE
-        value: 70
+        value: 60
       - key: SCAN_INTERVAL_SECONDS
-        value: 300
+        value: 600
       - key: LOG_LEVEL
         value: INFO
