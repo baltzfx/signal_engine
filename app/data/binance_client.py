@@ -21,7 +21,7 @@ class BinanceClient:
             'apiKey': settings.BINANCE_API_KEY,
             'secret': settings.BINANCE_API_SECRET,
             'enableRateLimit': True,
-            'options': {'defaultType': 'future'}  # Use futures for funding rates
+            'options': {'defaultType': 'spot'}  # Use spot market
         })
         self.cache = MarketDataCache()
         
