@@ -22,8 +22,8 @@ COPY app/ ./app/
 # Create directories for data and logs
 RUN mkdir -p data logs
 
-# Set Python path
-ENV PYTHONPATH=/app
+# Set working directory to app for imports
+WORKDIR /app/app
 
 # Run the application
-CMD ["python", "-m", "app.main"]
+CMD ["python", "main.py"]
