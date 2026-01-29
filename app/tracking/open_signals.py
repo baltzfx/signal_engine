@@ -60,7 +60,6 @@ class OpenSignalsTracker:
                 updated_count += 1
                 
                 if outcome.get('should_close', False):
-                    self.repo.close_signal(db_signal.id)
                     closed_count += 1
         
         logger.info(f"Updated {updated_count} signals, closed {closed_count} signals")
