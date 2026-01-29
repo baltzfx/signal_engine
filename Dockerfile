@@ -22,6 +22,9 @@ COPY app/ ./app/
 # Create directories for data and logs
 RUN mkdir -p data logs
 
+# Debug: List what was copied
+RUN ls -la /app/app/ && echo "--- Checking submodules ---" && ls -la /app/app/data/ || echo "data dir missing"
+
 # Set working directory to app folder
 WORKDIR /app/app
 
