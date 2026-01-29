@@ -1,9 +1,8 @@
 services:
-  - type: web
+  - type: worker
     name: signal-engine
     env: docker
     plan: free
-    healthCheckPath: /health
     envVars:
       - key: BINANCE_API_KEY
         sync: false
