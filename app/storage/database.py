@@ -552,3 +552,54 @@ async def get_latest_feature_importance(model_type: str) -> Dict[str, float]:
     rows = await cursor.fetchall()
     return {row[0]: row[1] for row in rows}
 
+
+async def expire_old_signals(ttl_seconds: int = 3600) -> int:
+    """
+    Mark signals as expired if they're past TTL and don't have an outcome yet.
+    Returns the number of signals expired.
+    """
+    db = get_db()
+    now = time.time()
+    expiry_timestamp = now - ttl_seconds
+    
+    # Find signals that:
+    # 1. Don't have a performance record (no outcome)
+    # 2. Are older than TTL
+    query = """
+        SELECT s.id, s.symbol, s.timestamp, s.entry_price
+        FROM signals s
+        LEFT JOIN signal_performance sp ON s.id = sp.signal_id
+        WHERE sp.signal_id IS NULL
+        AND s.timestamp < ?
+    """
+    
+    cursor = await db.execute(query, (expiry_timestamp,))
+    expired_signals = await cursor.fetchall()
+    
+    if not expired_signals:
+        return 0
+    
+    # Create performance records marking them as expired
+    count = 0
+    for row in expired_signals:
+        signal_id, symbol, timestamp, entry_price = row
+        await record_signal_performance(
+            signal_id=signal_id,
+            symbol=symbol,
+            direction="unknown",  # Direction not needed for expired
+            entry_price=entry_price or 0.0,
+            exit_price=entry_price,  # Exit at entry price (no movement)
+            entry_time=timestamp,
+            exit_time=now,
+            outcome="expired",
+            timeframe="5m",
+            score=None,
+        )
+        count += 1
+    
+    # Flush performance records immediately
+    await _flush_buffer()
+    
+    logger.info(f"Expired {count} old signals (older than {ttl_seconds}s)")
+    return count
+

@@ -34,7 +34,7 @@ from app.core.websocket_broadcast import (
 )
 from app.storage.database import (
     init_db, close_db, get_signals, get_events, get_signal_stats, get_event_stats,
-    get_performance_stats, get_latest_feature_importance,
+    get_performance_stats, get_latest_feature_importance, expire_old_signals,
 )
 from app.storage.chat_history import (
     init_chat_db, save_message, get_session_history, get_all_sessions, delete_session
@@ -63,6 +63,48 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ── Background cleanup task ──────────────────────────────────────
+_cleanup_task: asyncio.Task | None = None
+_cleanup_running = False
+
+
+async def _periodic_signal_cleanup():
+    """Periodically expire old signals in database."""
+    global _cleanup_running
+    _cleanup_running = True
+    
+    while _cleanup_running:
+        try:
+            await asyncio.sleep(600)  # Run every 10 minutes
+            expired = await expire_old_signals(ttl_seconds=3600)
+            if expired > 0:
+                logger.info(f"Periodic cleanup: expired {expired} old signals")
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Error in periodic signal cleanup")
+
+
+async def start_cleanup_task():
+    """Start the periodic cleanup background task."""
+    global _cleanup_task
+    _cleanup_task = asyncio.create_task(_periodic_signal_cleanup())
+    logger.info("Periodic signal cleanup task started (runs every 10 minutes)")
+
+
+async def stop_cleanup_task():
+    """Stop the periodic cleanup task."""
+    global _cleanup_task, _cleanup_running
+    _cleanup_running = False
+    if _cleanup_task:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+        _cleanup_task = None
+        logger.info("Periodic signal cleanup task stopped")
+
 
 # ── Lifespan ─────────────────────────────────────────────────────
 @asynccontextmanager
@@ -75,6 +117,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_redis()
     await init_db()
     await init_chat_db()
+    
+    # Clean up expired signals from previous runs
+    expired_count = await expire_old_signals(ttl_seconds=3600)
+    if expired_count > 0:
+        logger.info(f"Cleaned up {expired_count} expired signals from database")
 
     # 2. Background workers (order matters) - testing one by one
     await start_collectors()
@@ -85,12 +132,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await start_telegram_worker()  # Worker for signal notifications
     await start_monitor()
     await start_websocket_broadcaster()  # NEW: WebSocket broadcaster
+    await start_cleanup_task()  # Periodic signal cleanup
 
     logger.info("All workers started — engine is live")
     yield
 
     # Shutdown in reverse order
     logger.info("Shutting down …")
+    await stop_cleanup_task()  # Stop cleanup task
     await stop_websocket_broadcaster()  # NEW
     await stop_monitor()
     await stop_telegram_worker()  # Signal sender
