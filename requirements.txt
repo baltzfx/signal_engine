@@ -1,0 +1,35 @@
+# ── Core ──────────────────────────────────────────────────────────
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+pydantic>=2.0,<3.0
+pydantic-settings>=2.0,<3.0
+
+# ── Async ─────────────────────────────────────────────────────────
+redis[hiredis]>=5.0,<6.0
+websockets>=12.0,<14.0
+httpx
+aiofiles>=23.0,<25.0
+
+# ── Storage ───────────────────────────────────────────────────────
+aiosqlite>=0.19,<1.0
+
+# ── Monitoring ────────────────────────────────────────────────────
+psutil>=5.9,<7.0
+prometheus-client>=0.19,<1.0
+
+# ── Telegram Bot ──────────────────────────────────────────────────
+python-telegram-bot
+
+# AI features removed - using rule-based responses
+
+# ── HTTP client ───────────────────────────────────────────────────
+requests>=2.31,<3.0
+
+# ── AI (Version 2 — optional, install when needed) ───────────────
+# lightgbm>=4.0
+# xgboost>=2.0
+# numpy>=1.26
+# joblib>=1.3
+# scikit-learn>=1.4
+
+numpy>=1.26,<3.0

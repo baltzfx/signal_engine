@@ -1,0 +1,33 @@
+# Byte-compiled / optimised
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Environment
+.env
+
+# Data / models (large files)
+data/db/
+data/signals/
+research/data/*.parquet
+research/data/*.csv
+research/models/*.json
+research/models/*.pkl
+research/models/*.txt
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
