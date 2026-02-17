@@ -44,8 +44,8 @@ export default function SignalCard({ signal }: SignalCardProps) {
   
   // Calculate time open and expiry warning
   const timeOpenSecs = currentTime / 1000 - signal.timestamp;
-  const maxTTL = 3600; // 1 hour
-  const isNearExpiry = timeOpenSecs > (maxTTL * 0.75); // 75% of TTL (45 mins)
+  const maxTTL = 21600; // 6 hours
+  const isNearExpiry = timeOpenSecs > (maxTTL * 0.75); // 75% of TTL (4.5 hours)
 
   return (
     <div className="flex justify-start animate-slide-in">
@@ -156,6 +156,34 @@ export default function SignalCard({ signal }: SignalCardProps) {
             )}
           </div>
 
+          {/* Real-time Price & P&L (for open signals) */}
+          {(!signal.outcome || signal.outcome === 'open') && signal.current_price && (
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="text-xs text-blue-700 mb-1 font-semibold">Current Price</div>
+                <div className="font-bold text-blue-800">${signal.current_price.toFixed(2)}</div>
+              </div>
+              {signal.current_pnl_pct !== undefined && (
+                <div className={`rounded-lg p-3 border ${
+                  signal.current_pnl_pct >= 0 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className={`text-xs mb-1 font-semibold ${
+                    signal.current_pnl_pct >= 0 ? 'text-green-700' : 'text-red-700'
+                  }`}>
+                    Real-time P&L
+                  </div>
+                  <div className={`font-bold text-lg ${
+                    signal.current_pnl_pct >= 0 ? 'text-green-800' : 'text-red-800'
+                  }`}>
+                    {signal.current_pnl_pct >= 0 ? '▲' : '▼'} {Math.abs(signal.current_pnl_pct).toFixed(2)}%
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Trigger Events */}
           {signal.trigger_events && signal.trigger_events.length > 0 && (
             <div className="bg-blue-50 rounded-lg p-3">
@@ -189,7 +217,7 @@ export default function SignalCard({ signal }: SignalCardProps) {
                   {isNearExpiry ? (
                     <span className="text-orange-500 text-[10px]">(expiring soon!)</span>
                   ) : (
-                    <span className="text-gray-400 text-[10px]">(expires in 1h)</span>
+                    <span className="text-gray-400 text-[10px]">(expires in 6h)</span>
                   )}
                 </div>
               )}

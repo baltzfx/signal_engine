@@ -19,6 +19,9 @@ export interface Signal {
   exit_time?: number;
   return_pct?: number;
   duration_sec?: number;
+  // Real-time tracking (for open signals)
+  current_price?: number;
+  current_pnl_pct?: number;
 }
 
 export interface Message {

@@ -210,7 +210,7 @@ async def _evaluate_symbol(symbol: str) -> None:
         if mark_data:
             entry_price = float(mark_data.get("mark_price", 0))
         else:
-            kline_data = await r.hgetall(f"{symbol}:kline")
+            kline_data = await r.hgetall(f"{symbol}:kline:{settings.primary_timeframe}")
             entry_price = float(kline_data.get("c", 0)) if kline_data else 0.0
         atr_val = float(features.get("atr", 0))
         if entry_price > 0 and atr_val > 0:

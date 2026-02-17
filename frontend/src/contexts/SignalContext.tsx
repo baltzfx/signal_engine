@@ -38,38 +38,77 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
 
   // Load initial signals from API
   useEffect(() => {
+    let isFirstLoad = true; // Use local variable instead of state
+    
     const loadSignals = async () => {
       try {
         const api = new ApiClient();
+        console.log('Fetching signals from API...');
         const response = await api.getSignals(50);
+        console.log('API response:', response);
+        
         if (response.signals && response.signals.length > 0) {
+          console.log(`Loaded ${response.signals.length} signals`);
           setSignals(response.signals);
           
-          // Add initial signals as messages
-          const signalMessages: Message[] = response.signals.map((signal: Signal) => ({
-            id: `signal-${signal.timestamp}`,
-            type: 'signal' as const,
-            content: formatSignalMessage(signal),
-            signal,
-            timestamp: signal.timestamp * 1000,
-          }));
-          
-          setMessages(prev => [...prev, ...signalMessages]);
+          // Add initial signals as messages (only on first load)
+          if (isFirstLoad) {
+            const signalMessages: Message[] = response.signals.map((signal: Signal) => ({
+              id: `signal-${signal.symbol}-${signal.timestamp}`,
+              type: 'signal' as const,
+              content: formatSignalMessage(signal),
+              signal,
+              timestamp: signal.timestamp * 1000,
+            }));
+            
+            setMessages(prev => [...prev, ...signalMessages]);
+            isFirstLoad = false; // Update local flag
+            console.log('Initial signals added to messages');
+          } else {
+            // On refresh, update existing signal messages with new price data
+            setMessages(prev => prev.map(msg => {
+              if (msg.type === 'signal' && msg.signal) {
+                const updatedSignal = response.signals.find(
+                  (s: Signal) => s.symbol === msg.signal!.symbol && s.timestamp === msg.signal!.timestamp
+                );
+                if (updatedSignal) {
+                  return {
+                    ...msg,
+                    signal: updatedSignal,
+                    content: formatSignalMessage(updatedSignal),
+                  };
+                }
+              }
+              return msg;
+            }));
+            console.log('Signals refreshed with new price data');
+          }
+        } else {
+          console.log('No signals returned from API');
         }
       } catch (error) {
-        console.error('Failed to load initial signals:', error);
-        const errorMsg: Message = {
-          id: `error-${Date.now()}`,
-          type: 'system',
-          content: '⚠️ Failed to load signals from API. Check if backend is running.',
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, errorMsg]);
+        console.error('Failed to load signals:', error);
+        if (isFirstLoad) {
+          const errorMsg: Message = {
+            id: `error-${Date.now()}`,
+            type: 'system',
+            content: '⚠️ Failed to load signals from API. Check if backend is running on http://localhost:8000',
+            timestamp: Date.now(),
+          };
+          setMessages(prev => [...prev, errorMsg]);
+        }
       }
     };
 
     loadSignals();
-  }, []);
+    
+    // Refresh signals every 10 seconds to update current prices and P&L
+    const refreshInterval = setInterval(() => {
+      loadSignals();
+    }, 10000); // 10 seconds
+    
+    return () => clearInterval(refreshInterval);
+  }, []); // Empty dependency array - only run once on mount
 
   const handleWebSocketMessage = useCallback((wsMessage: any) => {
     switch (wsMessage.type) {

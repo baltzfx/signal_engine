@@ -59,7 +59,7 @@ export default function SignalsTable() {
     });
   };
 
-  const getOutcomeColor = (outcome?: string) => {
+  const getOutcomeColor = (outcome?: string | null) => {
     switch (outcome) {
       case 'tp_hit':
         return 'bg-green-100 text-green-800 border-green-200';
@@ -72,7 +72,7 @@ export default function SignalsTable() {
     }
   };
 
-  const getOutcomeText = (outcome?: string) => {
+  const getOutcomeText = (outcome?: string | null) => {
     switch (outcome) {
       case 'tp_hit':
         return '✅ TP Hit';
@@ -140,6 +140,12 @@ export default function SignalsTable() {
                     Entry
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    Current
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    P&L
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Take Profit
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -191,6 +197,28 @@ export default function SignalsTable() {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm font-mono">
                         {formatPrice(signal.entry_price)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-mono">
+                        {signal.current_price ? (
+                          <span className="text-blue-600 font-semibold">
+                            {formatPrice(signal.current_price)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold">
+                        {signal.current_pnl_pct !== undefined ? (
+                          <span className={signal.current_pnl_pct >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {signal.current_pnl_pct >= 0 ? '▲' : '▼'} {Math.abs(signal.current_pnl_pct).toFixed(2)}%
+                          </span>
+                        ) : signal.return_pct !== undefined ? (
+                          <span className={signal.return_pct >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {signal.return_pct >= 0 ? '▲' : '▼'} {Math.abs(signal.return_pct).toFixed(2)}%
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm font-mono text-green-600">
                         <div className="flex items-center gap-1">

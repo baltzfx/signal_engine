@@ -45,6 +45,7 @@ from app.collectors.manager import start_collectors, stop_collectors
 from app.features.engine import start_feature_engine, stop_feature_engine
 from app.events.engine import start_event_engine, stop_event_engine
 from app.signals.engine import start_signal_engine, stop_signal_engine
+from app.signals.tracker import start_price_monitor, stop_price_monitor
 
 # Telegram bot (optional)
 try:
@@ -76,7 +77,7 @@ async def _periodic_signal_cleanup():
     while _cleanup_running:
         try:
             await asyncio.sleep(600)  # Run every 10 minutes
-            expired = await expire_old_signals(ttl_seconds=3600)
+            expired = await expire_old_signals(ttl_seconds=21600)  # 6 hours
             if expired > 0:
                 logger.info(f"Periodic cleanup: expired {expired} old signals")
         except asyncio.CancelledError:
@@ -119,15 +120,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_chat_db()
     
     # Clean up expired signals from previous runs
-    expired_count = await expire_old_signals(ttl_seconds=3600)
+    expired_count = await expire_old_signals(ttl_seconds=21600)  # 6 hours
     if expired_count > 0:
         logger.info(f"Cleaned up {expired_count} expired signals from database")
+    
+    # Restore open signals to tracker BEFORE signal engine starts
+    from app.signals.tracker import restore_open_signals_from_db
+    restored_count = await restore_open_signals_from_db()
+    if restored_count > 0:
+        logger.info(f"Restored {restored_count} open signals to tracker")
 
     # 2. Background workers (order matters) - testing one by one
     await start_collectors()
     await start_feature_engine()
     await start_event_engine()
     await start_signal_engine()
+    await start_price_monitor()  # TP/SL checker - CRITICAL for signal tracking
     await start_telegram_bot()  # Bot for user queries/commands
     await start_telegram_worker()  # Worker for signal notifications
     await start_monitor()
@@ -144,6 +152,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await stop_monitor()
     await stop_telegram_worker()  # Signal sender
     await stop_telegram_bot()  # Bot for queries
+    await stop_price_monitor()  # CRITICAL: Stop TP/SL monitor
     await stop_signal_engine()
     await stop_event_engine()
     await stop_feature_engine()
@@ -226,9 +235,67 @@ async def metrics_legacy():
 # ── Signal / Event history (SQLite) ─────────────────────────────
 @app.get("/signals")
 async def signals_history(symbol: str | None = None, limit: int = 50):
-    """Query stored signals."""
+    """Query stored signals with real-time price and P&L for open signals."""
     rows = await get_signals(symbol=symbol, limit=limit)
-    return {"signals": rows, "count": len(rows)}
+    
+    # Deduplicate: for each symbol, only keep the most recent open signal
+    # Closed signals can have duplicates (shows history)
+    seen_open_symbols = set()
+    deduplicated_rows = []
+    
+    for signal in rows:
+        is_open = not signal.get('outcome') or signal.get('outcome') == 'open'
+        sym = signal['symbol']
+        
+        if is_open:
+            # Only include first (most recent) open signal per symbol
+            if sym not in seen_open_symbols:
+                seen_open_symbols.add(sym)
+                deduplicated_rows.append(signal)
+        else:
+            # Include all closed signals
+            deduplicated_rows.append(signal)
+    
+    # Enrich open signals with current price and real-time P&L
+    r = get_redis()
+    enriched_count = 0
+    for signal in deduplicated_rows:
+        # Only add current price for open signals (no outcome or outcome='open')
+        if not signal.get('outcome') or signal.get('outcome') == 'open':
+            sym = signal['symbol']
+            
+            # Try to get current mark price from Redis
+            mark_data = await r.hgetall(f"{sym}:mark_price")
+            if mark_data:
+                current_price = float(mark_data.get("mark_price", 0))
+                logger.debug(f"Got mark price for {sym}: {current_price}")
+            else:
+                # Fallback to kline close price (use primary timeframe)
+                kline_data = await r.hgetall(f"{sym}:kline:{settings.primary_timeframe}")
+                current_price = float(kline_data.get("c", 0)) if kline_data else 0
+                if current_price > 0:
+                    logger.debug(f"Got kline price for {sym}: {current_price}")
+                else:
+                    logger.warning(f"No price data found for {sym}")
+            
+            if current_price > 0:
+                signal['current_price'] = current_price
+                
+                # Calculate real-time P&L
+                entry = signal.get('entry_price', 0)
+                if entry > 0:
+                    direction = signal.get('direction', 'long')
+                    pnl = ((current_price - entry) / entry) * 100
+                    if direction == 'short':
+                        pnl = -pnl
+                    signal['current_pnl_pct'] = round(pnl, 2)
+                    enriched_count += 1
+                    logger.debug(f"{sym} {direction}: entry={entry}, current={current_price}, pnl={signal['current_pnl_pct']}%")
+    
+    if enriched_count > 0:
+        logger.info(f"Enriched {enriched_count} open signals with current prices")
+    
+    return {"signals": deduplicated_rows, "count": len(deduplicated_rows)}
 
 
 @app.get("/signals/stats")
@@ -329,7 +396,7 @@ async def query_custom(query: str):
 async def chat_message(request: dict):
     """Process a chat message and return AI response with history saved."""
     from app.signals.on_demand_scorer import get_top_symbols
-    from app.signals.tracker import get_all_open_signals
+    from app.signals.tracker import get_all_open_signals_with_price
     from app.ai.response_generator import generate_custom_query_response
     
     try:
@@ -345,9 +412,9 @@ async def chat_message(request: dict):
         # Get recent context (last 10 messages for context)
         history = await get_session_history(session_id, limit=10)
         
-        # Get market context - both top scores and active signals with entry/TP/SL
+        # Get market context - both top scores and active signals with entry/TP/SL and current price
         top_symbols = await get_top_symbols(10)
-        active_signals = get_all_open_signals()  # Get signals with trading levels
+        active_signals = await get_all_open_signals_with_price()  # Get signals with current prices
         
         # DEBUG: Print what we're passing to AI
         print(f"\n{'='*50}")

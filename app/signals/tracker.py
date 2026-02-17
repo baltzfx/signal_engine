@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # These can be overridden via config; defaults are sensible for crypto futures
 DEFAULT_TP_ATR_MULT = 2.0       # TP = entry ± (ATR × mult)
 DEFAULT_SL_ATR_MULT = 1.0       # SL = entry ∓ (ATR × mult)
-DEFAULT_SIGNAL_TTL = 3600       # 1 hour max before auto-expire
+DEFAULT_SIGNAL_TTL = 21600      # 6 hours max before auto-expire
 PRICE_CHECK_INTERVAL = 1.0      # seconds between mark-price scans
 
 
@@ -119,7 +119,7 @@ def get_open_signal(symbol: str) -> Optional[TrackedSignal]:
 
 
 def get_all_open_signals() -> List[Dict[str, Any]]:
-    """Return all currently open signals as dicts."""
+    """Return all currently open signals as dicts with current price and P&L."""
     now = time.time()
     result = []
     for sym, sig in list(_open_signals.items()):
@@ -131,6 +131,38 @@ def get_all_open_signals() -> List[Dict[str, Any]]:
             d["age_seconds"] = round(now - sig.opened_at, 1)
             result.append(d)
     return result
+
+
+async def get_all_open_signals_with_price() -> List[Dict[str, Any]]:
+    """Return all currently open signals with real-time price and P&L."""
+    signals = get_all_open_signals()
+    r = get_redis()
+    
+    for sig in signals:
+        sym = sig['symbol']
+        
+        # Get current mark price
+        mark_data = await r.hgetall(f"{sym}:mark_price")
+        if mark_data:
+            current_price = float(mark_data.get("mark_price", 0))
+        else:
+            # Fallback to kline close (use primary timeframe)
+            kline_data = await r.hgetall(f"{sym}:kline:{settings.primary_timeframe}")
+            current_price = float(kline_data.get("c", 0)) if kline_data else 0
+        
+        if current_price > 0:
+            sig['current_price'] = current_price
+            
+            # Calculate real-time P&L
+            entry = sig.get('entry_price', 0)
+            if entry > 0:
+                direction = sig.get('direction', 'long')
+                pnl = ((current_price - entry) / entry) * 100
+                if direction == 'short':
+                    pnl = -pnl
+                sig['current_pnl_pct'] = round(pnl, 2)
+    
+    return signals
 
 
 def get_closed_signals(limit: int = 50) -> List[Dict[str, Any]]:
@@ -307,11 +339,26 @@ async def _persist_closed_signal(sig: TrackedSignal) -> None:
 
     # NEW: Record performance metrics
     try:
-        from app.storage.database import record_signal_performance
+        from app.storage.database import record_signal_performance, get_signals
         from app.core import prometheus_metrics as prom
 
+        # Try to find the signal ID from the database
+        signal_id = None
+        try:
+            # Query database for this signal by symbol and timestamp
+            signals = await get_signals(symbol=sig.symbol, limit=10)
+            for db_sig in signals:
+                # Match by symbol and timestamp (within 5 seconds tolerance)
+                if (db_sig['symbol'] == sig.symbol and 
+                    abs(db_sig['timestamp'] - sig.opened_at) < 5 and
+                    not db_sig.get('outcome')):  # No outcome yet
+                    signal_id = db_sig.get('id')
+                    break
+        except Exception:
+            logger.debug(f"Could not find signal_id for {sig.symbol}", exc_info=True)
+
         await record_signal_performance(
-            signal_id=None,  # We don't track signal ID here
+            signal_id=signal_id,
             symbol=sig.symbol,
             direction=sig.direction,
             entry_price=sig.entry_price,
@@ -345,6 +392,57 @@ async def start_price_monitor() -> None:
     _running = True
     _monitor_task = asyncio.create_task(_price_monitor_loop())
     logger.info("Signal price monitor started")
+
+
+async def restore_open_signals_from_db() -> int:
+    """
+    On startup, restore open signals from the database into the in-memory tracker.
+    This prevents duplicate signal creation after restarts.
+    Returns the number of signals restored.
+    """
+    try:
+        from app.storage.database import get_signals
+        
+        # Get recent signals (last 100)
+        signals = await get_signals(limit=100)
+        
+        restored_count = 0
+        for sig_dict in signals:
+            # Only restore if no outcome (still open)
+            if not sig_dict.get('outcome'):
+                symbol = sig_dict['symbol']
+                
+                # Check if not already in tracker
+                if symbol not in _open_signals:
+                    # Reconstruct TrackedSignal from database
+                    tracked = TrackedSignal(
+                        symbol=symbol,
+                        direction=sig_dict.get('direction', 'long'),
+                        score=sig_dict.get('score', 0.5),
+                        entry_price=sig_dict.get('entry_price', 0),
+                        tp_price=sig_dict.get('tp_price', 0),
+                        sl_price=sig_dict.get('sl_price', 0),
+                        atr=sig_dict.get('atr', 0),
+                        opened_at=sig_dict.get('timestamp', 0),
+                        ttl=getattr(settings, 'signal_max_ttl', DEFAULT_SIGNAL_TTL),
+                        outcome=Outcome.OPEN,
+                        trigger_events=[],
+                    )
+                    
+                    # Check if expired
+                    if time.time() - tracked.opened_at > tracked.ttl:
+                        # Mark as expired immediately
+                        _close_signal(tracked, Outcome.EXPIRED, tracked.entry_price)
+                    else:
+                        # Restore to tracker
+                        _open_signals[symbol] = tracked
+                        restored_count += 1
+        
+        return restored_count
+    
+    except Exception:
+        logger.warning("Failed to restore signals from database", exc_info=True)
+        return 0
 
 
 async def stop_price_monitor() -> None:
@@ -382,38 +480,56 @@ async def _check_all_open_signals() -> None:
 
     r = get_redis()
     now = time.time()
+    
+    logger.debug(f"Checking {len(_open_signals)} open signals for TP/SL")
 
     for symbol, sig in list(_open_signals.items()):
         if not sig.is_open:
             continue
 
         # TTL check
-        if now - sig.opened_at > sig.ttl:
+        age = now - sig.opened_at
+        if age > sig.ttl:
+            logger.info(f"{symbol} EXPIRED after {age:.0f}s (TTL: {sig.ttl}s)")
             _close_signal(sig, Outcome.EXPIRED, sig.entry_price)
             continue
 
         # Get current mark price from Redis
         mark_data = await r.hgetall(f"{symbol}:mark_price")
         if not mark_data:
-            # Fallback: use latest kline close
-            kline_data = await r.hgetall(f"{symbol}:kline")
+            # Fallback: use latest kline close (primary timeframe)
+            kline_data = await r.hgetall(f"{symbol}:kline:{settings.primary_timeframe}")
             if not kline_data:
+                logger.warning(f"{symbol}: No price data in Redis (no mark_price or kline)")
                 continue
             current_price = float(kline_data.get("c", 0))
+            logger.debug(f"{symbol}: Using kline price {current_price}")
         else:
             current_price = float(mark_data.get("mark_price", 0))
+            logger.debug(f"{symbol}: Using mark price {current_price}")
 
         if current_price <= 0:
+            logger.warning(f"{symbol}: Invalid price {current_price}")
             continue
+
+        # Log price vs TP/SL
+        logger.debug(
+            f"{symbol} {sig.direction.upper()}: current={current_price:.6f}, "
+            f"entry={sig.entry_price:.6f}, TP={sig.tp_price:.6f}, SL={sig.sl_price:.6f}"
+        )
 
         # Check TP / SL
         if sig.direction == "long":
             if current_price >= sig.tp_price:
+                logger.info(f"{symbol} LONG TP HIT: {current_price:.6f} >= {sig.tp_price:.6f}")
                 _close_signal(sig, Outcome.TP_HIT, current_price)
             elif current_price <= sig.sl_price:
+                logger.info(f"{symbol} LONG SL HIT: {current_price:.6f} <= {sig.sl_price:.6f}")
                 _close_signal(sig, Outcome.SL_HIT, current_price)
         else:  # short
             if current_price <= sig.tp_price:
+                logger.info(f"{symbol} SHORT TP HIT: {current_price:.6f} <= {sig.tp_price:.6f}")
                 _close_signal(sig, Outcome.TP_HIT, current_price)
             elif current_price >= sig.sl_price:
+                logger.info(f"{symbol} SHORT SL HIT: {current_price:.6f} >= {sig.sl_price:.6f}")
                 _close_signal(sig, Outcome.SL_HIT, current_price)

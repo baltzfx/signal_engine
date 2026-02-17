@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     tracker_enabled: bool = True
     tp_atr_multiplier: float = 2.0     # TP = entry ± ATR × this
     sl_atr_multiplier: float = 1.0     # SL = entry ∓ ATR × this
-    signal_max_ttl: int = 3600         # auto-expire after 1 hour
+    signal_max_ttl: int = 21600         # auto-expire after 6 hours
     price_check_interval: float = 1.0  # seconds between TP/SL scans
 
     # ── Telegram Bot (for queries) ───────────────────────────────

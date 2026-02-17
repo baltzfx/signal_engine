@@ -327,6 +327,20 @@ async def get_signals(
     return [_row_to_dict(r) for r in rows]
 
 
+async def has_open_signal_in_db(symbol: str) -> bool:
+    """Check if there's an open signal (no outcome) for a symbol in the database."""
+    db = get_db()
+    query = """
+        SELECT COUNT(*) 
+        FROM signals s
+        LEFT JOIN signal_performance sp ON s.id = sp.signal_id
+        WHERE s.symbol = ? AND sp.signal_id IS NULL
+    """
+    cursor = await db.execute(query, (symbol,))
+    result = await cursor.fetchone()
+    return result[0] > 0 if result else False
+
+
 async def get_events(
     symbol: Optional[str] = None,
     event_type: Optional[str] = None,
